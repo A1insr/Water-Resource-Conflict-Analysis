@@ -152,7 +152,11 @@ def build_all_scores(cfg: ScoreBuildersConfig) -> Tuple[Dict[str, Dict[str, floa
     agri_scores = cf.build_agri_scores_isfahan_for_scenarios(
         agri_params, hydro_state=cfg.hydro_state, include_yazd_dimension=True
     )
-    social_scores = cf.build_social_scores_isfahan_for_scenarios(cf.default_social_isfahan_params())
+    # ---- Social satisfaction (Isfahan) with trade-off injection ----
+    social_params = cf.default_social_isfahan_params()
+
+
+    social_scores = cf.build_social_scores_isfahan_for_scenarios(social_params)
     env_scores = cf.build_env_scores_isfahan_for_scenarios(cf.default_env_isfahan_params())
 
     scores_I: Dict[str, Dict[str, float]] = {}
@@ -300,4 +304,274 @@ if __name__ == "__main__":
 
     # (D) Build and print the payoff tables (two 3×3 tables, conditioned on Yazd action)
     build_and_show_payoff_tables(utilities)
+
+
+# =========================
+# DEBUG HELPERS (Chapter 6)
+# =========================
+import os
+
+def _print_ahp_weights():
+    """Step 2: print AHP weights exactly from current pairwise matrices."""
+    wI, _ = ahp_weights(pairwise_I)
+    wY, _ = ahp_weights(pairwise_Y)
+    wG, _ = ahp_weights(pairwise_G)
+
+    weight_I = {criteria_I[i]: float(wI[i]) for i in range(len(criteria_I))}
+    weight_Y = {criteria_Y[i]: float(wY[i]) for i in range(len(criteria_Y))}
+    weight_G = {criteria_G[i]: float(wG[i]) for i in range(len(criteria_G))}
+
+    print("\n" + "="*80)
+    print("AHP weights (Isfahan):", weight_I)
+    print("AHP weights (Yazd):   ", weight_Y)
+    print("AHP weights (Gov):    ", weight_G)
+    print("="*80 + "\n")
+
+    return weight_I, weight_Y, weight_G
+
+
+def _range_report(scores: Dict[str, Dict[str, float]], criteria_list, title: str):
+    """Step 3: min/max/range per criterion over all 18 scenarios."""
+    print("\n" + "="*80)
+    print(f"RANGE REPORT — {title}")
+    print("="*80)
+    for c in criteria_list:
+        vals = [float(scores[s][c]) for s in SCENARIOS]
+        mn, mx = min(vals), max(vals)
+        print(f"{c:>22s} | min={mn:8.3f} | max={mx:8.3f} | range={mx-mn:8.3f}")
+    print("="*80 + "\n")
+
+
+def run_debug(cfg: ScoreBuildersConfig):
+    """
+    Runs the 3 debug steps:
+      (1) payoff tables with RAW utilities (no normalize)
+      (2) print AHP weights
+      (3) criterion score ranges across 18 scenarios
+    """
+    # --- Safety: if excel paths don't exist, set them to None so defaults are used ---
+    # (This keeps your pipeline from crashing if a file is missing.)
+    for attr in ["budget_cost_excel", "economic_growth_excel", "public_satisfaction_excel", "security_risk_excel"]:
+        p = getattr(cfg, attr)
+        if p is not None and (not os.path.exists(p)):
+            print(f"[WARN] Excel not found -> using defaults: {attr}='{p}'")
+            setattr(cfg, attr, None)
+
+    # Build scores (0..100)
+    scores_I, scores_Y, scores_G = build_all_scores(cfg)
+
+    # Step 2: Print AHP weights
+    _print_ahp_weights()
+
+    # Step 3: Range report of criterion scores (0..100)
+    _range_report(scores_I, criteria_I, "Isfahan criterion scores (0..100)")
+    _range_report(scores_Y, criteria_Y, "Yazd criterion scores (0..100)")
+    _range_report(scores_G, criteria_G, "Government criterion scores (0..100)")
+
+    # Step 1: Payoff tables with RAW utilities (no normalize)
+    utilities_raw = compute_player_utilities(
+        scores_I, scores_Y, scores_G,
+        normalize_utilities=False
+    )
+
+    print("\n" + "#"*80)
+    print("PAYOFF TABLES — RAW utilities (no normalization)")
+    print("#"*80 + "\n")
+    build_and_show_payoff_tables(utilities_raw)
+
+    # (Optional) also show normalized version for comparison
+    utilities_scaled = compute_player_utilities(
+        scores_I, scores_Y, scores_G,
+        normalize_utilities=True
+    )
+    print("\n" + "#"*80)
+    print("PAYOFF TABLES — NORMALIZED utilities [-5,+5] (for comparison)")
+    print("#"*80 + "\n")
+    build_and_show_payoff_tables(utilities_scaled)
+
+
+def _contrib_delta(scores_a, scores_b, weights):
+    """
+    returns per-criterion contribution difference:
+    w_k * (score_k(b) - score_k(a))
+    """
+    out = {}
+    for k, w in weights.items():
+        out[k] = float(w) * (float(scores_b[k]) - float(scores_a[k]))
+    return out
+
+
+def _print_pair_debug(player_name, sA, sB, scores_dict, weights):
+    """
+    Compare two scenarios for same player:
+    prints scores, utility, and contribution deltas.
+    """
+    scA = scores_dict[sA]
+    scB = scores_dict[sB]
+
+    UA = compute_utility(scA, weights)
+    UB = compute_utility(scB, weights)
+
+    print("\n" + "="*90)
+    print(f"[{player_name}] Compare scenarios:")
+    print(f"  A = {sA}  -> U = {UA:.4f} | scores = {scA}")
+    print(f"  B = {sB}  -> U = {UB:.4f} | scores = {scB}")
+    print(f"  ΔU = (B-A) = {UB-UA:.4f}")
+    print("-"*90)
+
+    cd = _contrib_delta(scA, scB, weights)
+    # sort by absolute impact
+    for k, v in sorted(cd.items(), key=lambda x: abs(x[1]), reverse=True):
+        print(f"  {k:>22s}: {v:+.4f}   (weight={weights[k]:.4f}, Δscore={scB[k]-scA[k]:+.2f})")
+    print("="*90 + "\n")
+
+
+def run_contribution_debug(cfg: ScoreBuildersConfig):
+    # Build scores
+    scores_I, scores_Y, scores_G = build_all_scores(cfg)
+
+    # AHP weights
+    wI, _ = ahp_weights(pairwise_I)
+    wY, _ = ahp_weights(pairwise_Y)
+    wG, _ = ahp_weights(pairwise_G)
+    weight_I = {criteria_I[i]: float(wI[i]) for i in range(len(criteria_I))}
+    weight_Y = {criteria_Y[i]: float(wY[i]) for i in range(len(criteria_Y))}
+    weight_G = {criteria_G[i]: float(wG[i]) for i in range(len(criteria_G))}
+
+    # ----------------------------
+    # 1) Isfahan dominance check
+    # Fix G and Y, compare S_I vs M_I vs D_I
+    # ----------------------------
+    G = "C_G"
+    Y = "S_Y"
+    s_S = f"S_I_{G}_{Y}"
+    s_M = f"M_I_{G}_{Y}"
+    s_D = f"D_I_{G}_{Y}"
+
+    _print_pair_debug("Isfahan", s_S, s_M, scores_I, weight_I)  # M vs S
+    _print_pair_debug("Isfahan", s_D, s_M, scores_I, weight_I)  # M vs D
+    _print_pair_debug("Isfahan", s_S, s_D, scores_I, weight_I)  # D vs S
+
+    # ----------------------------
+    # 2) Yazd dominance check
+    # Fix I and G, compare S_Y vs A_Y
+    # ----------------------------
+    I = "S_I"
+    G = "C_G"
+    s_SY = f"{I}_{G}_S_Y"
+    s_AY = f"{I}_{G}_A_Y"
+    _print_pair_debug("Yazd", s_SY, s_AY, scores_Y, weight_Y)
+
+    # ----------------------------
+    # 3) Government dominance check
+    # Fix I and Y, compare Q_G vs C_G vs R_G
+    # ----------------------------
+    I = "S_I"
+    Y = "S_Y"
+    s_Q = f"{I}_Q_G_{Y}"
+    s_C = f"{I}_C_G_{Y}"
+    s_R = f"{I}_R_G_{Y}"
+
+    _print_pair_debug("Government", s_Q, s_C, scores_G, weight_G)  # C vs Q
+    _print_pair_debug("Government", s_R, s_Q, scores_G, weight_G)  # Q vs R
+    _print_pair_debug("Government", s_R, s_C, scores_G, weight_G)  # C vs R
+
+def run_ahp_sensitivity_test(cfg: ScoreBuildersConfig):
+    scores_I, scores_Y, scores_G = build_all_scores(cfg)
+
+    # AHP weights original
+    wI, _ = ahp_weights(pairwise_I)
+    weight_I_orig = {criteria_I[i]: float(wI[i]) for i in range(len(criteria_I))}
+    print("Original Isfahan weights:", weight_I_orig)
+
+    # Case 1: Equal weights for Isfahan
+    weight_I_eq = {k: 1.0/3.0 for k in criteria_I}
+    print("Equal Isfahan weights:", weight_I_eq)
+
+    # Utilities RAW for two cases (Yazd/Gov unchanged)
+    wY, _ = ahp_weights(pairwise_Y)
+    wG, _ = ahp_weights(pairwise_G)
+    weight_Y = {criteria_Y[i]: float(wY[i]) for i in range(len(criteria_Y))}
+    weight_G = {criteria_G[i]: float(wG[i]) for i in range(len(criteria_G))}
+
+    utilities_orig = {
+        "Isfahan": {s: compute_utility(scores_I[s], weight_I_orig) for s in SCENARIOS},
+        "Yazd": {s: compute_utility(scores_Y[s], weight_Y) for s in SCENARIOS},
+        "Government": {s: compute_utility(scores_G[s], weight_G) for s in SCENARIOS},
+    }
+    utilities_eq = {
+        "Isfahan": {s: compute_utility(scores_I[s], weight_I_eq) for s in SCENARIOS},
+        "Yazd": {s: compute_utility(scores_Y[s], weight_Y) for s in SCENARIOS},
+        "Government": {s: compute_utility(scores_G[s], weight_G) for s in SCENARIOS},
+    }
+
+    print("\n--- PAYOFF (RAW) with ORIGINAL Isfahan weights ---")
+    build_and_show_payoff_tables(utilities_orig)
+
+    print("\n--- PAYOFF (RAW) with EQUAL Isfahan weights ---")
+    build_and_show_payoff_tables(utilities_eq)
+
+def run_isfahan_weight_sensitivity(cfg: ScoreBuildersConfig):
+    scores_I, scores_Y, scores_G = build_all_scores(cfg)
+
+    # weights for Yazd and Gov stay as AHP
+    wY, _ = ahp_weights(pairwise_Y)
+    wG, _ = ahp_weights(pairwise_G)
+    weight_Y = {criteria_Y[i]: float(wY[i]) for i in range(len(criteria_Y))}
+    weight_G = {criteria_G[i]: float(wG[i]) for i in range(len(criteria_G))}
+
+    # Define Isfahan weight test cases
+    tests = {
+        "A_agri45_social35_env20": {"agricultural_income": 0.45, "social_satisfaction": 0.35, "environment": 0.20},
+        "B_agri35_social45_env20": {"agricultural_income": 0.35, "social_satisfaction": 0.45, "environment": 0.20},
+        "C_agri40_social35_env25": {"agricultural_income": 0.40, "social_satisfaction": 0.35, "environment": 0.25},
+    }
+
+    for name, weight_I in tests.items():
+        utilities = {
+            "Isfahan": {s: compute_utility(scores_I[s], weight_I) for s in SCENARIOS},
+            "Yazd": {s: compute_utility(scores_Y[s], weight_Y) for s in SCENARIOS},
+            "Government": {s: compute_utility(scores_G[s], weight_G) for s in SCENARIOS},
+        }
+
+        print("\n" + "#"*90)
+        print(f"ISFAHAN WEIGHT SENSITIVITY TEST: {name}")
+        print("Isfahan weights:", weight_I)
+        print("#"*90 + "\n")
+
+        build_and_show_payoff_tables(utilities)
+
+
+# =========================
+# Replace your __main__ with this call (or add it)
+# =========================
+if __name__ == "__main__":
+    # Your existing calibration example (unchanged)
+    spi_df = pd.DataFrame({
+        "Year": [1393, 1394, 1395, 1396, 1397, 1398, 1399, 1400, 1401, 1402],
+        "Precipitation_mm": [96.0, 96.0, 71.1, 90.1, 154.2, 141.8, 139.0, 64.7, 135.8, 69.8],
+        "SPI_yearly": [-0.291609, -0.291609, -1.028773, -0.466278, 1.431400, 1.064299, 0.981405, -1.218245, 0.886669, -1.067259]
+    })
+    area_df = pd.DataFrame({
+        "crop_year": ["1396-1397", "1397-1398", "1399-1400", "1400-1401", "1402-1403"],
+        "Area": [197671, 201639, 199913, 192434, 211452]
+    })
+
+    cfg = ScoreBuildersConfig(
+        hydro_state="normal",
+        spi_df=spi_df,
+        area_df=area_df,
+        budget_cost_excel="/mnt/data/gov_budget_cost_equal_weights_expert.xlsx",
+        economic_growth_excel="/mnt/data/gov_economic_growth_template_1400_with_employment.xlsx",
+        public_satisfaction_excel="/mnt/data/gov_public_satisfaction_deltas_proposed.xlsx",
+        security_risk_excel="/mnt/data/security_risk_impact_table.xlsx",
+    )
+
+    # Run the 3-step debug + show raw and normalized payoffs
+    run_debug(cfg)
+
+
+
+
+
 

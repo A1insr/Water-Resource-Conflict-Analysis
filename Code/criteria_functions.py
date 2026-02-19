@@ -118,7 +118,7 @@ def calibrate_agri_isfahan(
         Includes calibrated factors and the merged overlap dataframe.
     """
     if conflict_factor is None:
-        conflict_factor = {"S_I": 0.60, "M_I": 1.30, "D_I": 1.15}
+        conflict_factor = {"S_I": 0.8, "M_I": 1.2, "D_I": 1.1}
 
     # Defensive checks
     for c in [year_col, precip_col, spi_col]:
