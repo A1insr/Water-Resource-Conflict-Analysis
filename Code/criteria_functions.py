@@ -118,7 +118,7 @@ def calibrate_agri_isfahan(
         Includes calibrated factors and the merged overlap dataframe.
     """
     if conflict_factor is None:
-        conflict_factor = {"S_I": 0.8, "M_I": 1.2, "D_I": 1.1}
+        conflict_factor = {"S_I": 0.95, "M_I": 1.1, "D_I": 1.05}
 
     # Defensive checks
     for c in [year_col, precip_col, spi_col]:
@@ -261,7 +261,7 @@ class SocialIsfahanParams:
     contentment_effect: Dict[str, float]
     justice_effect: Dict[str, float]
     crisis_effect: Dict[str, float]
-    weights: Tuple[float, float, float] = (0.5, 0.3, 0.2)
+    weights: Tuple[float, float, float] = (1/3, 1/3, 1/3)
 
 
 def default_social_isfahan_params() -> SocialIsfahanParams:
@@ -314,7 +314,7 @@ def default_social_isfahan_params() -> SocialIsfahanParams:
         contentment_effect=contentment,
         justice_effect=justice,
         crisis_effect=crisis,
-        weights=(0.5, 0.3, 0.2),
+        weights=(1/3, 1/3, 1/3),
     )
 
 

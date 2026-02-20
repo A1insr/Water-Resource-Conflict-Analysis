@@ -69,9 +69,9 @@ criteria_G = [
 # AHP PAIRWISE MATRICES (EXPERT-BASED) — KEPT EXACTLY AS ORIGINAL
 # -------------------------------------------------------------------
 pairwise_I = [
-    [1,   3,   6],
-    [1/3, 1,   2],
-    [1/6, 1/2, 1]
+    [1,   2,   3],
+    [1/2, 1,   2],
+    [1/3, 1/2, 1]
 ]
 
 pairwise_Y = [
@@ -81,10 +81,10 @@ pairwise_Y = [
 ]
 
 pairwise_G = [
-    [1,   3,   5,   1/4],
-    [1/3, 1,   2,   1/6],
-    [1/5, 1/2, 1,   1/8],
-    [4,   6,   8,   1]
+    [1,   4,   3,   1/3],
+    [1/4, 1,   1/2,   1/6],
+    [1/3, 2, 1,   1/5],
+    [3,   6,   5,   1]
 ]
 
 
@@ -155,6 +155,26 @@ def build_all_scores(cfg: ScoreBuildersConfig) -> Tuple[Dict[str, Dict[str, floa
     # ---- Social satisfaction (Isfahan) with trade-off injection ----
     social_params = cf.default_social_isfahan_params()
 
+
+    # Trade-off for Isfahan (justice channel)
+    social_params.contentment_effect["S_I"] = 0
+    social_params.contentment_effect["M_I"] = 2
+    social_params.contentment_effect["D_I"] = 6
+    social_params.contentment_effect["A_Y"] = -2
+    social_params.contentment_effect["Q_G"] = -7
+    social_params.contentment_effect["C_G"] = 4
+    social_params.contentment_effect["R_G"] = 6
+
+    social_params.justice_effect["C_G"] = 2
+    social_params.justice_effect["R_G"] = 4
+
+    # Make crisis more realistic (D worst)
+    social_params.crisis_effect["M_I"] = -12
+    social_params.crisis_effect["D_I"] = -7
+    social_params.crisis_effect["A_Y"] = -3
+    social_params.crisis_effect["Q_G"] = -10
+    social_params.crisis_effect["C_G"] = 5
+    social_params.crisis_effect["R_G"] = 8
 
     social_scores = cf.build_social_scores_isfahan_for_scenarios(social_params)
     env_scores = cf.build_env_scores_isfahan_for_scenarios(cf.default_env_isfahan_params())
@@ -569,6 +589,8 @@ if __name__ == "__main__":
 
     # Run the 3-step debug + show raw and normalized payoffs
     run_debug(cfg)
+
+    run_isfahan_weight_sensitivity(cfg)
 
 
 
